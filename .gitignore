@@ -32,3 +32,5 @@ go.work.sum
 # .vscode/
 vendor/
 .vscode/
+
+.DS_Store
