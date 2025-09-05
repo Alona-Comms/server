@@ -55,6 +55,9 @@ func Initialize() *App {
 	})
 
 	lightProtected.GET("/rooms/:slug/guest-token", guestTokenHandler)
+	lightProtected.GET("/rooms/:slug/keys", func(c echo.Context) error {
+		return roomKeysHandler(c, app.signalingServer)
+	})
 
 	// 🔴 5 req/min
 	strictLimiter := middleware.NewIPRateLimiter(rate.Every(time.Minute/5), 1)

@@ -21,8 +21,77 @@ func (s *Server) handleMessage(slug string, participant *Participant, message *M
 		s.handleDeny(room, participant, message)
 	case MessageTypeOffer, MessageTypeAnswer, MessageTypeICECandidate:
 		s.handleWebRTCMessage(room, participant, message)
+	case MessageTypeKeyExchange:
+		s.handleKeyExchange(room, participant, message)
+	case MessageTypeEncrypted:
+		s.handleEncryptedData(room, participant, message)
 	default:
 		log.Printf("Unknown message type: %s", message.Type)
+	}
+}
+
+func (s *Server) handleKeyExchange(room *Room, participant *Participant, message *Message) {
+	data, ok := message.Data.(map[string]interface{})
+	if !ok {
+		log.Printf("Invalid key exchange data format")
+		return
+	}
+
+	publicKey, ok := data["public_key"].(string)
+	if !ok {
+		log.Printf("Missing public key in key exchange")
+		return
+	}
+
+	if err := room.SavePublicKey(participant.ID, publicKey); err != nil {
+		log.Printf("Failed to save public key for %s: %v", participant.ID, err)
+
+		errorMsg := &Message{
+			Type: MessageTypeError,
+			Data: ErrorData{
+				Code:    "INVALID_PUBLIC_KEY",
+				Message: "Invalid public key format",
+			},
+			Timestamp: time.Now(),
+		}
+		participant.Conn.WriteJSON(errorMsg)
+		return
+	}
+
+	log.Printf("Saved public key for participant %s in room %s", participant.ID, room.Slug)
+
+	// ВАЖНО: Убедитесь что BroadcastPublicKeys вызывается
+	log.Printf("Broadcasting public keys to all participants")
+	room.BroadcastPublicKeys("")
+	log.Printf("Broadcast completed")
+}
+
+func (s *Server) handleEncryptedData(room *Room, participant *Participant, message *Message) {
+	if participant.Status != StatusInRoom {
+		return
+	}
+
+	data, ok := message.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	toParticipantID, ok := data["to"].(string)
+	if !ok {
+		return
+	}
+
+	message.From = participant.ID
+	message.Timestamp = time.Now()
+
+	if toParticipantID == "all" {
+		room.BroadcastToAll(message, participant.ID)
+	} else {
+		if room.Host != nil && room.Host.ID == toParticipantID {
+			room.BroadcastToHost(message)
+		} else {
+			room.BroadcastToGuest(toParticipantID, message)
+		}
 	}
 }
 

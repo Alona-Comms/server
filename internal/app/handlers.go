@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Kaamos-Comms/server/internal/signaling"
 	"github.com/labstack/echo/v4"
 )
 
@@ -56,7 +57,47 @@ func roomsAnonymousHandler(c echo.Context) error {
 	})
 }
 
-// guestTokenHandler обрабатывает GET /rooms/:slug/guest-token
+// roomKeysHandler возвращает публичные ключи участников комнаты
+func roomKeysHandler(c echo.Context, signalingServer *signaling.Server) error {
+	slug := c.Param("slug")
+	slug = sanitizeSlug(slug)
+	if slug == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "invalid room slug",
+		})
+	}
+
+	stats := signalingServer.GetRoomStats(slug)
+	if stats == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": "room not found",
+		})
+	}
+
+	// Извлекаем публичные ключи из статистики
+	participants, ok := stats["participants"].(*signaling.ParticipantsData)
+	if !ok {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to get participant data",
+		})
+	}
+
+	keys := make(map[string]string)
+	if participants.Host != nil && participants.Host.Keys.PublicKey != "" {
+		keys[participants.Host.ID] = participants.Host.Keys.PublicKey
+	}
+	for id, guest := range participants.Guests {
+		if guest.Keys.PublicKey != "" {
+			keys[id] = guest.Keys.PublicKey
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"room": slug,
+		"keys": keys,
+	})
+}
+
 func guestTokenHandler(c echo.Context) error {
 	slug := c.Param("slug")
 

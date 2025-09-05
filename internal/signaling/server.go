@@ -159,6 +159,8 @@ func (s *Server) leaveRoom(slug string, participant *Participant) {
 		return
 	}
 
+	room.RemovePublicKey(participant.ID)
+
 	room.RemoveParticipant(participant.ID)
 	participant.Conn.Close()
 
@@ -169,6 +171,8 @@ func (s *Server) leaveRoom(slug string, participant *Participant) {
 		Timestamp: time.Now(),
 	}
 	room.BroadcastToAll(leaveMessage, participant.ID)
+
+	room.BroadcastPublicKeys(participant.ID)
 
 	if room.IsEmpty() {
 		delete(s.rooms, slug)

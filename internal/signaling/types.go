@@ -7,39 +7,72 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// MessageType определяет типы сообщений в signaling
-type MessageType string
-
-const (
-	MessageTypeJoin         MessageType = "join"
-	MessageTypeLeave        MessageType = "leave"
-	MessageTypeKnock        MessageType = "knock"         // Гость "стучится"
-	MessageTypeAllow        MessageType = "allow"         // Хост разрешает
-	MessageTypeDeny         MessageType = "deny"          // Хост отклоняет
-	MessageTypeOffer        MessageType = "offer"         // WebRTC offer
-	MessageTypeAnswer       MessageType = "answer"        // WebRTC answer
-	MessageTypeICECandidate MessageType = "ice_candidate" // ICE candidate
-	MessageTypeParticipants MessageType = "participants"  // Список участников
-	MessageTypeError        MessageType = "error"
-)
-
-// ParticipantRole определяет роль участника
-type ParticipantRole string
-
 const (
 	RoleHost  ParticipantRole = "host"
 	RoleGuest ParticipantRole = "guest"
-)
 
-// ParticipantStatus определяет статус участника
-type ParticipantStatus string
+	MessageTypeJoin         MessageType = "join"
+	MessageTypeLeave        MessageType = "leave"
+	MessageTypeKnock        MessageType = "knock"
+	MessageTypeAllow        MessageType = "allow"
+	MessageTypeDeny         MessageType = "deny"
+	MessageTypeOffer        MessageType = "offer"
+	MessageTypeAnswer       MessageType = "answer"
+	MessageTypeICECandidate MessageType = "ice_candidate"
+	MessageTypeParticipants MessageType = "participants"
+	MessageTypeError        MessageType = "error"
+	MessageTypeKeyExchange  MessageType = "key_exchange"
+	MessageTypePublicKeys   MessageType = "public_keys"
+	MessageTypeEncrypted    MessageType = "encrypted_data"
 
-const (
 	StatusConnected    ParticipantStatus = "connected"
 	StatusKnocking     ParticipantStatus = "knocking"
 	StatusInRoom       ParticipantStatus = "in_room"
 	StatusDisconnected ParticipantStatus = "disconnected"
 )
+
+type ParticipantKeys struct {
+	PublicKey string `json:"public_key"` // Base64-encoded public key
+}
+
+type Participant struct {
+	ID       string                 `json:"id"`
+	Conn     WebSocketConnInterface `json:"-"`
+	Role     ParticipantRole        `json:"role"`
+	Status   ParticipantStatus      `json:"status"`
+	Name     string                 `json:"name,omitempty"`
+	Keys     ParticipantKeys        `json:"keys,omitempty"` // ← НОВОЕ ПОЛЕ
+	JoinedAt time.Time              `json:"joined_at"`
+}
+
+type Room struct {
+	Slug       string                  `json:"slug"`
+	Host       *Participant            `json:"host,omitempty"`
+	Guests     map[string]*Participant `json:"guests"`
+	PublicKeys map[string]string       `json:"public_keys"` // ← НОВОЕ ПОЛЕ
+	CreatedAt  time.Time               `json:"created_at"`
+	mutex      sync.RWMutex
+}
+
+type KeyExchangeData struct {
+	PublicKey string `json:"public_key"`
+}
+
+type PublicKeysData struct {
+	Keys map[string]string `json:"keys"` // participantID -> publicKey
+}
+
+type EncryptedData struct {
+	To        string `json:"to"`        // ID получателя
+	Data      string `json:"data"`      // Base64-кодированные зашифрованные данные
+	Algorithm string `json:"algorithm"` // "ed25519" или другой алгоритм
+}
+
+type MessageType string
+
+type ParticipantRole string
+
+type ParticipantStatus string
 
 type WebSocketConnInterface interface {
 	WriteJSON(v interface{}) error
@@ -49,35 +82,14 @@ type WebSocketConnInterface interface {
 	WriteMessage(messageType int, data []byte) error
 }
 
-// WebSocketConnWrapper оборачивает *websocket.Conn для реализации интерфейса
 type WebSocketConnWrapper struct {
 	*websocket.Conn
 }
 
-// NewWebSocketConnWrapper создает wrapper для websocket.Conn
 func NewWebSocketConnWrapper(conn *websocket.Conn) *WebSocketConnWrapper {
 	return &WebSocketConnWrapper{Conn: conn}
 }
 
-type Participant struct {
-	ID       string                 `json:"id"`
-	Conn     WebSocketConnInterface `json:"-"` // Изменен тип на интерфейс
-	Role     ParticipantRole        `json:"role"`
-	Status   ParticipantStatus      `json:"status"`
-	Name     string                 `json:"name,omitempty"`
-	JoinedAt time.Time              `json:"joined_at"`
-}
-
-// Room представляет комнату для звонков
-type Room struct {
-	Slug      string                  `json:"slug"`
-	Host      *Participant            `json:"host,omitempty"`
-	Guests    map[string]*Participant `json:"guests"`
-	CreatedAt time.Time               `json:"created_at"`
-	mutex     sync.RWMutex
-}
-
-// Message представляет сообщение в signaling
 type Message struct {
 	Type      MessageType `json:"type"`
 	From      string      `json:"from,omitempty"`
@@ -87,20 +99,17 @@ type Message struct {
 	Timestamp time.Time   `json:"timestamp"`
 }
 
-// JoinData содержит данные для присоединения
 type JoinData struct {
 	Name string          `json:"name"`
 	Role ParticipantRole `json:"role"`
 }
 
-// ParticipantsData содержит список участников
 type ParticipantsData struct {
 	Host   *Participant            `json:"host,omitempty"`
 	Guests map[string]*Participant `json:"guests"`
 	Count  int                     `json:"count"`
 }
 
-// ErrorData содержит информацию об ошибке
 type ErrorData struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`

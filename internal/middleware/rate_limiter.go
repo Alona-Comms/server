@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -36,7 +37,6 @@ func (rl *IPRateLimiter) getLimiter(ip string) *rate.Limiter {
 		limiter = rate.NewLimiter(rl.r, rl.b)
 		rl.limiters[ip] = limiter
 
-		// Очистка старых лимитеров (опционально, для экономии памяти)
 		go rl.cleanupLimiter(ip, 10*time.Minute)
 	}
 
@@ -57,6 +57,9 @@ func (rl *IPRateLimiter) Middleware() echo.MiddlewareFunc {
 			limiter := rl.getLimiter(ip)
 
 			if !limiter.Allow() {
+				log.Printf("Rate limit exceeded for IP %s on %s %s",
+					ip, c.Request().Method, c.Request().URL.Path)
+
 				return c.JSON(http.StatusTooManyRequests, map[string]interface{}{
 					"error":       "rate limit exceeded",
 					"message":     "too many requests from this IP address",
