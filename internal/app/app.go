@@ -5,10 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/Kaamos-Comms/server/internal/middleware"
 	"github.com/Kaamos-Comms/server/internal/signaling"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	echomiddleware "github.com/labstack/echo/v4/middleware"
+	"golang.org/x/time/rate"
 )
 
 var defaultPort = "8080"
@@ -29,16 +32,18 @@ func Initialize() *App {
 	app.e.HideBanner = true
 	app.e.HidePort = false
 
-	app.e.Use(middleware.Logger())
-	app.e.Use(middleware.Recover())
-	app.e.Use(middleware.CORS())
-	app.e.Use(middleware.RequestID())
+	app.e.Use(echomiddleware.Logger())
+	app.e.Use(echomiddleware.Recover())
+	app.e.Use(echomiddleware.CORS())
+	app.e.Use(echomiddleware.RequestID())
 
-	app.e.GET("/health", healthHandler)
-	app.e.POST("/rooms/anonymous", roomsAnonymousHandler)
+	rateLimiter := middleware.NewIPRateLimiter(rate.Every(time.Minute/5), 1)
+	protected := app.e.Group("")
+	protected.Use(rateLimiter.Middleware())
 
-	app.e.GET("/ws", echo.WrapHandler(http.HandlerFunc(app.signalingServer.HandleWebSocket)))
-	app.e.GET("/rooms/:slug/stats", func(c echo.Context) error {
+	protected.GET("/health", healthHandler)
+	protected.GET("/ws", echo.WrapHandler(http.HandlerFunc(app.signalingServer.HandleWebSocket)))
+	protected.GET("/rooms/:slug/stats", func(c echo.Context) error {
 		slug := c.Param("slug")
 		stats := app.signalingServer.GetRoomStats(slug)
 		if stats == nil {
@@ -47,7 +52,8 @@ func Initialize() *App {
 		return c.JSON(http.StatusOK, stats)
 	})
 
-	app.e.GET("/rooms/:slug/guest-token", guestTokenHandler)
+	protected.GET("/rooms/:slug/guest-token", guestTokenHandler)
+	protected.POST("/rooms/anonymous", roomsAnonymousHandler)
 
 	return app
 }
