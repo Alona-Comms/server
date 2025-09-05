@@ -47,6 +47,8 @@ func Initialize() *App {
 		return c.JSON(http.StatusOK, stats)
 	})
 
+	app.e.GET("/rooms/:slug/guest-token", guestTokenHandler)
+
 	return app
 }
 

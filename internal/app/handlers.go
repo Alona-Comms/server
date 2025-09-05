@@ -1,21 +1,20 @@
 package app
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 )
 
 const (
-	jwtSecret     = "your-secret-key-change-in-production" // Заменить на ENV переменную
-	tokenValidity = 24 * time.Hour
-	slugLength    = 8
+	tokenValidity      = 24 * time.Hour
+	slugLength         = 8
+	guestTokenValidity = 2 * time.Hour
 )
+
+var jwtSecret = getJWTSecret()
 
 type RoomResponse struct {
 	Slug string `json:"slug"`
@@ -57,26 +56,29 @@ func roomsAnonymousHandler(c echo.Context) error {
 	})
 }
 
-func generateSlug(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	encoded := base64.URLEncoding.EncodeToString(bytes)
-	if len(encoded) > length {
-		encoded = encoded[:length]
-	}
-	return encoded, nil
-}
+// guestTokenHandler обрабатывает GET /rooms/:slug/guest-token
+func guestTokenHandler(c echo.Context) error {
+	slug := c.Param("slug")
 
-func generateJWT(slug string) (string, error) {
-	claims := jwt.MapClaims{
-		"slug": slug,
-		"role": "host",
-		"iat":  time.Now().Unix(),
-		"exp":  time.Now().Add(tokenValidity).Unix(),
+	// Валидируем slug
+	slug = sanitizeSlug(slug)
+	if slug == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "invalid room slug",
+		})
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(jwtSecret))
+	// Генерируем гостевой токен
+	token, expiresAt, err := generateGuestJWT(slug)
+	if err != nil {
+		log.Printf("Failed to generate guest JWT: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to generate guest token",
+		})
+	}
+
+	return c.JSON(http.StatusOK, GuestTokenResponse{
+		GuestJWT:  token,
+		ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
+	})
 }
