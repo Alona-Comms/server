@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-func TestHandleWebRTCMessage(t *testing.T) {
+func TestHandleWebRTCMessageWithAllowedGuest(t *testing.T) {
 	server := NewServer()
 	room := NewRoom("test-room")
 
@@ -31,21 +31,31 @@ func TestHandleWebRTCMessage(t *testing.T) {
 	room.AddParticipant(host)
 	room.AddParticipant(guest)
 
-	message := &Message{
+	// Step 1: Host allows guest
+	allowMessage := &Message{
+		Type: MessageTypeAllow,
+		Data: "guest1",
+	}
+
+	mockGuestConn.On("WriteJSON", mock.Anything).Return(nil).Times(2) // Allow + Participants
+	mockHostConn.On("WriteJSON", mock.Anything).Return(nil).Times(1)  // Participants
+
+	server.handleAllow(room, host, allowMessage)
+
+	// Verify guest is now in room
+	assert.Equal(t, StatusInRoom, guest.Status)
+
+	// Step 2: Guest sends WebRTC message
+	webRTCMessage := &Message{
 		Type: MessageTypeOffer,
 		To:   "host1",
 		Data: map[string]interface{}{"sdp": "test-offer"},
 	}
 
-	// Expect message to be sent to host
-	mockHostConn.On("WriteJSON", mock.Anything).Return(nil).Times(2)  // Participants
-	mockGuestConn.On("WriteJSON", mock.Anything).Return(nil).Times(2) // Allow + Participants
+	mockHostConn.On("WriteJSON", webRTCMessage).Return(nil).Once()
 
-	server.handleAllow(room, host, &Message{
-		Type: MessageTypeAllow,
-		Data: "guest1",
-	})
-	server.handleWebRTCMessage(room, guest, message)
+	server.handleWebRTCMessage(room, guest, webRTCMessage)
+
 	mockHostConn.AssertExpectations(t)
 	mockGuestConn.AssertExpectations(t)
 }
@@ -150,4 +160,29 @@ func TestHandleDeny(t *testing.T) {
 
 	assert.Equal(t, 0, len(room.Guests))
 	mockGuestConn.AssertExpectations(t)
+}
+
+func TestHandleWebRTCMessageRejectsKnockingGuest(t *testing.T) {
+	server := NewServer()
+	room := NewRoom("test-room")
+
+	mockGuestConn := &MockWebSocketConn{}
+	guest := &Participant{
+		ID:     "guest1",
+		Conn:   mockGuestConn,
+		Role:   RoleGuest,
+		Status: StatusKnocking, // Not allowed to send messages
+	}
+
+	room.AddParticipant(guest)
+
+	message := &Message{
+		Type: MessageTypeOffer,
+		Data: map[string]interface{}{"sdp": "test-offer"},
+	}
+
+	server.handleWebRTCMessage(room, guest, message)
+
+	// No messages should have been sent
+	mockGuestConn.AssertNotCalled(t, "WriteJSON")
 }
